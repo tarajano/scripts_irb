@@ -1,0 +1,37 @@
+##
+## M.Alonso Dic 2010
+## gnuplot script to be used as template by heatmaps_flex-rmsd_prots-in-families.pl
+##
+
+set terminal postscript eps enhanced color solid "Courier" 11
+
+set view map
+set size square
+set style rectangle back
+set title "HPK Group HPK-GROUP"
+
+## X axis 
+set xtics (XTICS_LABELS)
+set xtics nomirror out rotate by 90
+set xlabel "FAMILY-A family" offset character 0, -3, 0 
+set xrange [-0.500000 : XTOP_VALUE] # PROTS IN FAMILY A + 0.5
+
+## Y axis
+set ytics nomirror out
+set ytics (YTICS_LABELS)
+set ylabel "FAMILY-B family" offset character -3, 0, 0 
+set yrange [-0.500000 : YTOP_VALUE ] # PROTS IN FAMILY B + 0.5
+
+## Color Box axis 
+set cbtics in
+set cbrange [* : *]
+set cblabel "Flexible RMSD\n(Angstroms)"
+set cblabel  offset character 3, 0, 0 rotate by 90
+
+
+## Take care of including the Max & Min values of Flex_rmsd when defining the ranges of colors in palette 
+set palette defined (0 "blue", 1 "white", 2 "red") 
+
+set output "HEAT_MAP_NAME.eps"
+
+plot 'GNUPLOT_DATA_FILE.dat' using 5:6:7 with image

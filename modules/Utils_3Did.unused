@@ -1,0 +1,247 @@
+# created on: 24/08/2012 by M.Alonso
+#
+# USAGE:
+#   PERL5LIB env variable:
+#    update PERL5LIB variable in .bashrc
+#    export PERL5LIB=${PERL5LIB}:/home/malonso/phd/kinome/scripts/modules/
+#
+# CALLING MODULE
+#   use Utils_3Did;
+#
+
+use strict;
+use warnings;
+
+use LoadFile;
+
+require Exporter;
+package Utils_3Did;
+
+our @ISA       = qw(Exporter);
+our @EXPORT    = qw(  
+                      search_3Did
+                      load_3did_flat
+                      interacting_domains
+                      subs_AS_interactions
+                      print_subs_AS_interactions
+                      print_interacting_domains_results
+                      
+                    );    # Symbols to be exported by default
+#
+
+##############################
+### 
+sub print_subs_AS_interactions{
+  my %tmp = %{$_[0]};
+  my $file = $_[1];
+  my $kin;
+  my @tmp;
+  open(O, ">$file") or die;
+  printf O ("%s\n", LoadFile::jointab(qw(kinase adapscaff pfamdom subs pfamdom)));
+  foreach $kin (keys %tmp){
+    foreach ( @{$tmp{$kin}} ){
+      printf O ("%s\n", LoadFile::jointab($kin, $_)) 
+    }
+  }
+  close(O);
+}
+##############################
+
+##############################
+### Given a kinase, the function searches in 3Did evidences of interactions
+### between domains present in the adaptors/scaffolds of the kinase and
+### the substrates of the kinase.
+### 
+sub subs_AS_interactions{
+  my %kinase_AS = %{$_[0]};
+  my %kinase_subs = %{$_[1]};
+  my %pfam_annotations = %{$_[2]};
+  my %data_3did_hash = %{$_[3]};
+  
+  my ($kin, $adapscaff, $subs);
+  my (@kin_AS, @kin_subs, @ac1_pfam_annot_doms, @ac2_pfam_annot_doms, @interacting_domains_res);
+  my %kin_AS_subs_pfam_interactions;
+  
+  foreach $kin (keys %kinase_AS){
+    @interacting_domains_res=();
+    
+    ## Check if we know substrates for the current kinase.
+    next unless (exists $kinase_subs{$kin}); 
+    
+    ### Get adaptors/scaffolds of current kinase
+    @kin_AS = keys %{$kinase_AS{$kin}};
+    ### Get substrates of current kinase
+    @kin_subs = keys %{$kinase_subs{$kin}};
+    
+    ### Cheking for 3Did interactions between Pfam domains present
+    ### in the susbtrates and AS of current kinase.
+    ### Iterating over all he adaptors/scaffolds and substrates of
+    ### current kinase.
+    foreach $adapscaff (@kin_AS){
+      ### Skip if not Pfam-annotated
+      next unless (exists $pfam_annotations{$adapscaff});
+      @ac1_pfam_annot_doms = keys %{$pfam_annotations{$adapscaff}};
+      foreach $subs (@kin_subs){
+        ### Skip unless the three proteins (kinase, adaptor and substrate) are unique
+        next unless ($kin ne $adapscaff && $adapscaff ne $subs && $kin ne $subs);
+        ### Skip if not Pfam-annotated
+        next unless (exists $pfam_annotations{$subs});
+        @ac2_pfam_annot_doms = keys %{$pfam_annotations{$subs}};
+        push(@interacting_domains_res, @{ search_3Did($adapscaff, \@ac1_pfam_annot_doms, $subs, \@ac2_pfam_annot_doms, \%data_3did_hash) })
+      }
+    }
+    @{ $kin_AS_subs_pfam_interactions{$kin} } = @interacting_domains_res if( 0 < @interacting_domains_res );
+  }
+  return (\%kin_AS_subs_pfam_interactions);
+}
+##############################
+
+##############################
+### Printing the results of function interacting_domains()
+### 
+### Input:
+###  1- Reference to array containing the results of interacting_domains()
+###  2- Name of output file
+### 
+### Output:
+###   Written file wit the fields:
+###   protein1 pfamdomainX protein2 pfamdomainY 
+###   pfamdomainX and pfamdomainY are reporeted to interact in 3Did
+###   protein1 and protein2 might interact via these two domains.
+###  
+sub print_interacting_domains_results{
+  my @res = @{$_[0]};
+  my $file = $_[1];
+  open(O,">$file") or die;
+  printf O ("%s\n", LoadFile::jointab(qw(protein pfamdom protein pfamdom)));
+  foreach(@res){print O "$_\n";}
+  close(O);
+}
+##############################
+
+##############################
+### Purpose:
+### Given a pair of proteins (e.g. PK-kAS, PK-pAS, PK-subst, AS-subs)
+### this function searches 3Did DB looking for interactions between
+### any of the Pfam domains that constitutes the query proteins.
+### 
+### Input:
+### A reference to a hash of hash with query proteins as pairs of keys. (e.g. {queryAC1}{queryAC2} )
+### 
+### Output:
+### A reference to an array with the interacting Pfam domains pairs (e.g. prot1 pfamA prot2 pfamN )
+### This means, prot1 and prot2 are known to interact via pfamA and pfamN
+### 
+### Usage
+### @results = @{ interacting_domains( \%input ) }
+### 
+sub interacting_domains{
+  my %hash1 = %{$_[0]}; ## {pkAC}{A/S_AC}=[data]
+  my %pfam_annotations = %{$_[1]}; ## {proteinAC}{Pfam_id}=[pfam_annotation_results]
+  my %data_3did_hash = %{$_[2]};
+  
+  my($ac1, $ac2, $dom1, $dom2);
+  my (@ac1_pfam_annot_doms, @ac2_pfam_annot_doms, @interacting_domains_res, @tmp);
+  
+  ### Iterating over first query proteins
+  foreach $ac1 ( keys %hash1){
+    
+    ### Skip if current protein is not Pfam-annotated
+    next unless (exists $pfam_annotations{$ac1});
+    
+    ### Collect all unique domains of query protein 1
+    @ac1_pfam_annot_doms = keys %{ $pfam_annotations{$ac1} } ;
+    
+    ### Iterating over second query proteins
+    foreach $ac2 ( keys %{$hash1{$ac1}} ){
+      
+      ### Skip if current protein is not Pfam-annotated
+      next unless (exists $pfam_annotations{$ac2});
+      
+      ### Collect all unique domains of query protein 2
+      @ac2_pfam_annot_doms = keys %{ $pfam_annotations{$ac2} } ;
+      
+      ### Searching 3Did for reported interactions between any domains of 
+      ### query proteins 1 and 2.
+      push(@interacting_domains_res, @{ search_3Did($ac1, \@ac1_pfam_annot_doms, $ac2, \@ac2_pfam_annot_doms, \%data_3did_hash) });
+    }
+  }
+  
+  return(\@interacting_domains_res);
+}
+##############################
+
+##############################
+### Searching 3Did for evidence of interactions between domains
+### 
+### Input:
+###   (  ac1, \@pfamdomains_ac1, ac2, \@pfamdomains_ac2  )
+### 
+### Output:
+###   A reference to an array containing the pfam domains with evidence
+###   of interaction and the corresponding query proteins.
+###   e.g.: ac1, pfamdomX, ac2, pfamdomY
+### 
+### Usage:
+###  @res = @{ search_3Did($ac1, \@ac1_pfam_annot_doms, $ac2, \@ac2_pfam_annot_doms) };
+### 
+### 
+sub search_3Did{
+  my $ac1 = $_[0];
+  my @doms1 = @{$_[1]};
+  my $ac2 = $_[2];
+  my @doms2 = @{$_[3]};
+  my %data_3did_hash = %{$_[4]};
+
+  my ($dom1, $dom2);
+  my @int_pfam_doms;
+  
+  ### Searching 3Did for reported interactions between any domains of 
+  ### query proteins 1 and 2.
+  foreach $dom1 (@doms1){
+    foreach $dom2 (@doms2){
+      if( exists $data_3did_hash{$dom1}{$dom2} || exists $data_3did_hash{$dom2}{$dom1} ){
+        push (@int_pfam_doms, LoadFile::jointab($ac1, $dom1, $ac2, $dom2));
+      }
+    }
+  }
+  return(\@int_pfam_doms);
+}
+##############################
+
+##############################
+### Loading the contents of 3did_flat
+### 
+sub load_3did_flat{
+  my $DB_3Did_flat_file="/aloy/home/malonso/phd_proj_dbs/3Did/3did_flat";
+  my ($dom1, $dom2);
+  my (@fields, @data_3did);
+  my %data_3did_hash;
+  use Storable;
+  
+  ## If 3did_flat had been already parsed and stored, load it. Otherwise
+  ## parse it and and store it.
+  if(-e "3did_flat.hash.perlobj"){
+    print "... loading from object file\n";
+    %data_3did_hash = %{ retrieve("3did_flat.hash.perlobj") };
+    return(\%data_3did_hash);
+  }else{
+    print "... may take some minutes\n";
+    foreach ( File2Array($DB_3Did_flat_file,0,"NOCOMMENTLINE") ){
+      @fields = split(/\s+/,$_);
+      if($fields[0] eq "#=ID"){
+        ($dom1, $dom2) = @fields[1..2];
+      }elsif($fields[0] eq "#=3D"){
+        push(@data_3did, LoadFile::jointab( @fields[1..$#fields] ));
+      }elsif($fields[0] eq "//"){
+        @{ $data_3did_hash{$dom1}{$dom2} } = @data_3did;
+        @data_3did=();
+      }else{}
+    }
+    store(\%data_3did_hash,"3did_flat.hash.perlobj");
+    return(\%data_3did_hash);
+  }
+}
+##############################
+
+1;

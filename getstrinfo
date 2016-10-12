@@ -1,0 +1,3 @@
+
+grep -P "^AGC" fly_best_models_v3 | wc -l
+

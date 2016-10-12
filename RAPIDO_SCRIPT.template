@@ -1,0 +1,10 @@
+open_xml( xml_file="RAPIDO_SCRIPT.xml", analysis_type=alignment );
+aset_read( ifile=PATH_STR1, pdb_id="PDB1");
+aset_egen( esd_model=constb, esd_const=0.4, esd_exponent=0.667 );
+aset_select( sele=(chainid == CHAIN1) );
+aset_read( ifile=PATH_STR2, pdb_id="PDB2");
+aset_egen( esd_model=constb, esd_const=0.4, esd_exponent=0.667 );
+aset_select( sele=(chainid == CHAIN2) );
+align( out_pairs=on, out_xml=on );
+close_xml();
+stop();

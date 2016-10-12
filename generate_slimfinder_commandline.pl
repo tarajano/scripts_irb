@@ -1,0 +1,139 @@
+#!/usr/bin/env perl
+#
+# created on: 24/Mar/2011 by M.Alonso
+#
+# Generating the directories, psites.fasta files and .slimfinder scripts for 
+# running SlimFinder on the PSites from integratedphosphodbs
+# 
+# INPUT FILES:
+#  integratedphosphodb_psite_seq_per_PK.fasta # 41mer lenght sequences of PSites
+#  humanproteome_maat.fa, humanproteome_maat.aafreq.txt # human proteome file and its corresponing AA freq as calculated by SlimFinder
+#
+# OUTPUT: 
+#  1) one folder per PK for which there is a reported PSite in HPRDv9 containing
+#       - the fasta sequences of the corresponding PSites
+#       - a script file for executing SlimFinder (*.slimfinder)
+#  2) a file with the paths to the *.slimfinder files to be executed (use ArrayJob for this)
+#
+#
+#
+#
+
+use strict;
+use warnings;
+use List::MoreUtils qw(uniq);
+
+my $SlimFinderexe="/home/malonso/programs/slimsuite/slimfinder.py";
+my $working_dir="/aloy/scratch/malonso/working_on_phosphoDBs/integrateddbs/slimfinder_runs/";
+my $proteomefile="/aloy/scratch/malonso/working_on_phosphoDBs/integrateddbs/humanproteome_maat.fa";
+my $psites_fasta_file="/aloy/scratch/malonso/working_on_phosphoDBs/integrateddbs/integratedphosphodb_psite_seq_per_PK.fasta"; ### test
+my $slimfinder_command="python $SlimFinderexe seqin=SEQIN aafreq=$proteomefile resdir=RESDIR resfile=RESFILE musthave=MUSTHAVE termini=F wildvar=T masking=F gnspacc=F maxseq=700 topranks=50 walltime=1";
+
+my ($key,$enz_folder);
+my ($resdir,$resfile,$seqin);
+my ($prev_enz_ac,$enz_ac,$site,$res,$subst_id,$musthave);
+
+my (%psites_fasta,%tmp_psites);
+my (@fields,@musthave,@slimfinder_comm_files);
+
+#################
+### Loading fasta psites.fasta file
+open(F,$psites_fasta_file) or die;
+while(<F>){
+  chomp();
+  if($_ =~ /^>(.+$)/){
+    $key = $1;
+    $psites_fasta{$key}="";
+  }elsif(/^[A-Z]/){
+    $psites_fasta{$key}=$_;
+  }
+}
+close(F);
+#################
+
+#print "$_\t$psites_fasta{$_}\n" foreach (sort {$a cmp $b} keys %psites_fasta);
+
+
+#################
+### Generating for each pk the input files and parameters required for running SlimFinder
+$prev_enz_ac="";
+foreach $key (sort {$a cmp $b} keys %psites_fasta){
+  ($enz_ac,$subst_id,$site,$res) = split("@",$key); # >PK|SUBST|SITE|RESIDUE
+  if($enz_ac eq $prev_enz_ac || $prev_enz_ac eq ""){
+    ## If this is the first iteration OR if still with the same enzyme
+    ## of the iteration before, store its data
+    $tmp_psites{$key}=$psites_fasta{$key};
+    push(@musthave,$res);
+    $prev_enz_ac = $enz_ac;
+  }elsif($enz_ac ne $prev_enz_ac){
+    ## If a new enzyme its been processed, print out previous enzyme data
+    print_enzyme_data();
+    
+    ## Clean up data from previous enzyme
+    @musthave=(); %tmp_psites=();
+    
+    ## Start loading data from current enzyme
+    push(@musthave,$res);
+    $tmp_psites{$key}=$psites_fasta{$key};
+    $prev_enz_ac = $enz_ac;  
+  }
+}
+print_enzyme_data();
+#################
+
+
+#################
+# Creating the file containing the paths to
+# each SlimFinder command
+open(LIST,">slimfinder_comm_files.list") or die;
+print LIST "$_\n" foreach(@slimfinder_comm_files);
+close(LIST);
+#################
+
+
+########################
+##### SUBROUTINES ######
+########################
+
+########################
+## Printing out previous enzyme data and files.
+sub print_enzyme_data{
+  ## Creating output dir & file
+  $resdir= $working_dir.$prev_enz_ac;
+  system("mkdir $resdir") unless(-d $resdir);
+  $resfile=$resdir."/".$prev_enz_ac.".cvs";
+  
+  ## Creating SEQIN (fasta) file
+  $seqin=$resdir."/".$prev_enz_ac.".fas";
+  open(O,">$seqin") or die;
+  print O ">$_\n$tmp_psites{$_}\n" foreach(keys %tmp_psites);
+  close(O);
+  
+  ## Eliminate duplicates in musthave residues list
+  @musthave = uniq(@musthave);
+  
+  ## Create command file
+  $musthave=join(",",@musthave);
+  my $tmp_command = $slimfinder_command;
+  $tmp_command =~ s/MUSTHAVE/$musthave/;
+  $tmp_command =~ s/RESDIR/$resdir/;
+  $tmp_command =~ s/RESFILE/$resfile/;
+  $tmp_command =~ s/SEQIN/$seqin/;
+  my $comm=$resdir."/".$prev_enz_ac.".slimfinder";
+  open(O,">$comm") or die;
+  print O "$tmp_command";
+  close(O);
+  
+  ## Filling an array with the list of commands files for creating
+  ## later the ArrayJob from which SlimFinder will be ran.
+  push(@slimfinder_comm_files,$comm);
+}
+########################
+
+
+
+
+
+
+
+
